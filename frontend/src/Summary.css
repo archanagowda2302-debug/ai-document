@@ -1,0 +1,218 @@
+import { useState } from "react";
+
+function Summary({ document, onBack }) {
+  const [summaryType, setSummaryType] = useState("Short");
+  const [summary, setSummary] = useState("");
+
+  const handleBack = () => {
+    // Return to the dashboard
+    window.location.href = "/";
+  };
+
+  const generateSummary = () => {
+    const fileName = document?.name || "your document";
+
+    let result = "";
+
+    if (summaryType === "Short") {
+      result = `This is a short summary of ${fileName}.
+
+The document contains important information and key concepts that can be used for learning and understanding the subject.
+
+This is currently sample content. Once the backend is connected, the AI will generate the summary directly from the uploaded PDF.`;
+    }
+
+    if (summaryType === "Detailed") {
+      result = `Detailed Summary
+
+Document: ${fileName}
+
+The document provides detailed information about its main subject. It contains concepts, explanations, examples and important points that are useful for understanding the topic.
+
+The main ideas can be studied section by section. Important concepts should be reviewed carefully, and the information can be used for examination preparation.
+
+This is currently sample content. The backend will later process the actual PDF and generate an AI-powered detailed summary.`;
+    }
+
+    if (summaryType === "Key Points") {
+      result = `Key Points
+
+• Main topic and purpose of the document
+• Important concepts explained in the document
+• Key information and supporting details
+• Important points useful for examination preparation
+• Major conclusions and observations
+
+This is currently sample content. The backend will later extract the actual key points from the uploaded PDF.`;
+    }
+
+    setSummary(result);
+  };
+
+  const downloadSummary = () => {
+    if (!summary) {
+      alert("Please generate a summary first.");
+      return;
+    }
+
+    const text = `DocAI Summary
+
+Document: ${document?.name || "Document"}
+Summary Type: ${summaryType}
+
+${summary}`;
+
+    const blob = new Blob([text], {
+      type: "text/plain",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+
+    link.href = url;
+    link.download = "DocAI-Summary.txt";
+
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="summary-page">
+
+      {/* HEADER */}
+      <div className="summary-header">
+
+        <button
+          type="button"
+          className="back-button"
+          onClick={handleBack}
+        >
+          ← Back to Dashboard
+        </button>
+
+        <div className="summary-title">
+
+          <div className="summary-title-icon">
+            📝
+          </div>
+
+          <div>
+            <h1>Summary</h1>
+
+            <p>
+              {document?.name || "No document selected"}
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* SUMMARY GENERATOR */}
+      <div className="summary-card">
+
+        <h2>📝 Generate Summary</h2>
+
+        <p className="summary-description">
+          Choose how you want the document to be summarized.
+        </p>
+
+        <div className="summary-option">
+
+          <label>Summary Type</label>
+
+          <div className="summary-types">
+
+            <button
+              type="button"
+              className={`type ${
+                summaryType === "Short" ? "active" : ""
+              }`}
+              onClick={() => setSummaryType("Short")}
+            >
+              Short
+            </button>
+
+            <button
+              type="button"
+              className={`type ${
+                summaryType === "Detailed" ? "active" : ""
+              }`}
+              onClick={() => setSummaryType("Detailed")}
+            >
+              Detailed
+            </button>
+
+            <button
+              type="button"
+              className={`type ${
+                summaryType === "Key Points" ? "active" : ""
+              }`}
+              onClick={() => setSummaryType("Key Points")}
+            >
+              Key Points
+            </button>
+
+          </div>
+
+        </div>
+
+        <button
+          type="button"
+          className="generate-button"
+          onClick={generateSummary}
+        >
+          📝 Generate Summary
+        </button>
+
+      </div>
+
+      {/* RESULT */}
+      {summary && (
+        <div className="result-card">
+
+          <div className="result-header">
+
+            <h2>Generated Summary</h2>
+
+            <span>
+              {summaryType} summary
+            </span>
+
+          </div>
+
+          <div className="summary-result">
+            {summary}
+          </div>
+
+          <div className="summary-actions">
+
+            <button
+              type="button"
+              className="download-button"
+              onClick={downloadSummary}
+            >
+              📥 Download Summary
+            </button>
+
+            <button
+              type="button"
+              className="regenerate-button"
+              onClick={generateSummary}
+            >
+              🔄 Regenerate
+            </button>
+
+          </div>
+
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+export default Summary;
