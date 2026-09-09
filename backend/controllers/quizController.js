@@ -1,181 +1,21 @@
-const Document = require("../models/Document");
+const { getDocument, getOwnedDocument } = require("../services/documentStore");
 
-
-// ==========================================
-// GET QUIZ FOR ATTENDING
-// ==========================================
-
-const getQuizForAttempt = async (req, res) => {
-  try {
-    const document = await Document.findById(req.params.id);
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found"
-      });
-    }
-
-    // Check whether quiz has been generated
-    if (!document.quiz || document.quiz.length === 0) {
-      return res.status(400).json({
-        message: "Quiz has not been generated yet. Please generate a quiz first."
-      });
-    }
-
-    /*
-      Send only questions and options.
-
-      DO NOT send:
-      - correctAnswer
-      - explanation
-
-      This prevents the student from seeing answers
-      before submitting the quiz.
-    */
-
-    const quiz = document.quiz.map((question, index) => ({
-      id: index + 1,
-      question: question.question,
-      options: question.options
-    }));
-
-    res.json({
-      message: "Quiz loaded successfully",
-      documentId: document._id,
-      documentName: document.originalName,
-      numberOfQuestions: quiz.length,
-      quiz
-    });
-
-  } catch (error) {
-    console.error("Get quiz error:", error);
-
-    res.status(500).json({
-      message: "Error loading quiz",
-      error: error.message
-    });
-  }
+const getQuizForAttempt = (req, res) => {
+  const document = getOwnedDocument(req.params.id, req.user.id);
+  if (!document) return res.status(getDocument(req.params.id) ? 403 : 404).json({ message: getDocument(req.params.id) ? "You are not allowed to access this document." : "Document not found." });
+  if (!document.quiz.length) return res.status(400).json({ message: "Quiz has not been generated yet." });
+  res.json({ documentId: document.id, documentName: document.name, numberOfQuestions: document.quiz.length, quiz: document.quiz.map(({ question, options }, index) => ({ id: index + 1, question, options })) });
 };
 
-
-// ==========================================
-// SUBMIT QUIZ
-// ==========================================
-
-const submitQuiz = async (req, res) => {
-  try {
-    const document = await Document.findById(req.params.id);
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found"
-      });
-    }
-
-    if (!document.quiz || document.quiz.length === 0) {
-      return res.status(400).json({
-        message: "Quiz has not been generated yet."
-      });
-    }
-
-    const { answers } = req.body;
-
-    // Check answers
-    if (!answers || !Array.isArray(answers)) {
-      return res.status(400).json({
-        message: "Please provide quiz answers."
-      });
-    }
-
-    // Make sure every question is answered
-    if (answers.length !== document.quiz.length) {
-      return res.status(400).json({
-        message: `Please answer all ${document.quiz.length} questions.`
-      });
-    }
-
-    let score = 0;
-
-    const results = document.quiz.map((question, index) => {
-
-      const userAnswer = answers[index];
-
-      const correct = userAnswer === question.correctAnswer;
-
-      if (correct) {
-        score++;
-      }
-
-      return {
-        questionNumber: index + 1,
-        question: question.question,
-        selectedAnswer: userAnswer,
-        correctAnswer: question.correctAnswer,
-        isCorrect: correct,
-        explanation: question.explanation
-      };
-    });
-
-
-    // ==========================================
-    // CALCULATE RESULT
-    // ==========================================
-
-    const totalQuestions = document.quiz.length;
-
-    const percentage = Math.round(
-      (score / totalQuestions) * 100
-    );
-
-
-    // ==========================================
-    // PERFORMANCE
-    // ==========================================
-
-    let performance;
-
-    if (percentage >= 90) {
-      performance = "Excellent";
-    } else if (percentage >= 75) {
-      performance = "Very Good";
-    } else if (percentage >= 60) {
-      performance = "Good";
-    } else if (percentage >= 40) {
-      performance = "Needs Improvement";
-    } else {
-      performance = "Keep Practicing";
-    }
-
-
-    // ==========================================
-    // RESPONSE
-    // ==========================================
-
-    res.json({
-      message: "Quiz submitted successfully",
-
-      result: {
-        score,
-        totalQuestions,
-        percentage,
-        performance
-      },
-
-      results
-    });
-
-  } catch (error) {
-    console.error("Submit quiz error:", error);
-
-    res.status(500).json({
-      message: "Error submitting quiz",
-      error: error.message
-    });
-  }
+const submitQuiz = (req, res) => {
+  const document = getOwnedDocument(req.params.id, req.user.id);
+  if (!document) return res.status(getDocument(req.params.id) ? 403 : 404).json({ message: getDocument(req.params.id) ? "You are not allowed to access this document." : "Document not found." });
+  const { answers } = req.body;
+  if (!Array.isArray(answers) || answers.length !== document.quiz.length) return res.status(400).json({ message: `Please provide answers for all ${document.quiz.length} questions.` });
+  const results = document.quiz.map((question, index) => ({ questionNumber: index + 1, question: question.question, selectedAnswer: answers[index] || "", correctAnswer: question.correctAnswer, isCorrect: Boolean(answers[index]) && answers[index] === question.correctAnswer, explanation: question.explanation }));
+  const score = results.filter((item) => item.isCorrect).length;
+  const percentage = Math.round((score / results.length) * 100);
+  res.json({ message: "Quiz submitted successfully", result: { score, totalQuestions: results.length, percentage, performance: percentage >= 75 ? "Very Good" : percentage >= 50 ? "Good" : "Keep Practicing" }, results });
 };
 
-
-module.exports = {
-  getQuizForAttempt,
-  submitQuiz
-};
+module.exports = { getQuizForAttempt, submitQuiz };

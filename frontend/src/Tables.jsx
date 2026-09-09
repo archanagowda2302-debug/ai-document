@@ -1,33 +1,29 @@
 import { useState } from "react";
+import { apiRequest } from "./api";
 
 function Tables({ document, onBack }) {
   const [tables, setTables] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const tableData = [
-    {
-      title: "Project Information",
-      headers: ["Parameter", "Details"],
-      rows: [
-        ["Project Name", "AI Document Assistant"],
-        ["Technology", "Artificial Intelligence"],
-        ["Platform", "Web Application"],
-        ["Status", "Active"],
-      ],
-    },
-    {
-      title: "Key Requirements",
-      headers: ["Requirement", "Description", "Priority"],
-      rows: [
-        ["PDF Upload", "Upload and process PDF documents", "High"],
-        ["Summary", "Generate document summaries", "High"],
-        ["Chat", "Ask questions about documents", "High"],
-        ["Quiz", "Generate questions automatically", "Medium"],
-      ],
-    },
-  ];
+  const extractTables = async () => {
+    if (!document?.id) {
+      alert("Please select a document first.");
+      return;
+    }
 
-  const extractTables = () => {
-    setTables(tableData);
+    setLoading(true);
+    try {
+      const data = await apiRequest(`/api/ai/${document.id}/tables`);
+      setTables(Array.isArray(data.tables) ? data.tables.map((table) => ({
+        ...table,
+        headers: Array.isArray(table.columns) ? table.columns : [],
+        rows: Array.isArray(table.rows) ? table.rows : [],
+      })) : []);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const downloadTables = () => {
@@ -125,8 +121,9 @@ function Tables({ document, onBack }) {
           className="extract-tables-button"
           type="button"
           onClick={extractTables}
+          disabled={loading}
         >
-          ✨ Extract Tables
+          {loading ? "Extracting Tables..." : "✨ Extract Tables"}
         </button>
 
       </div>
@@ -229,6 +226,7 @@ function Tables({ document, onBack }) {
               className="regenerate-tables-button"
               type="button"
               onClick={regenerateTables}
+              disabled={loading}
             >
               🔄 Regenerate
             </button>

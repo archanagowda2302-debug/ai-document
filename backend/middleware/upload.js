@@ -1,20 +1,12 @@
 const multer = require("multer");
+const fs = require("fs");
 const path = require("path");
 
+const uploadDirectory = path.join(__dirname, "../uploads");
+fs.mkdirSync(uploadDirectory, { recursive: true });
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, "uploads/");
-    },
-
-    filename: function (req, file, cb) {
-        const uniqueName =
-            Date.now() + "-" + Math.round(Math.random() * 1E9);
-
-        cb(
-            null,
-            uniqueName + path.extname(file.originalname)
-        );
-    }
+    destination: uploadDirectory,
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`)
 });
 
 const fileFilter = (req, file, cb) => {
@@ -31,7 +23,9 @@ const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 10 * 1024 * 1024
+        fileSize: 1024 * 1024 * 1024,
+        files: 20,
+        parts: 25
     }
 });
 

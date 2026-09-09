@@ -1,16 +1,18 @@
-const Document = require("../models/Document");
 const { generatePDF } = require("../utils/pdfGenerator");
+const { getDocument, getOwnedDocument } = require("../services/documentStore");
 const fs = require("fs");
+
+const getOwned = (req, res) => {
+  const document = getOwnedDocument(req.params.id, req.user.id);
+  if (document) return document;
+  res.status(getDocument(req.params.id) ? 403 : 404).json({ message: getDocument(req.params.id) ? "You are not allowed to access this document." : "Document not found." });
+  return null;
+};
 
 const generateSummaryPDF = async (req, res) => {
   try {
-    const document = await Document.findById(req.params.id);
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found"
-      });
-    }
+    const document = getOwned(req, res);
+    if (!document) return;
 
     if (!document.summary) {
       return res.status(400).json({
@@ -18,17 +20,17 @@ const generateSummaryPDF = async (req, res) => {
       });
     }
 
-    const fileName = `summary-${document._id}.pdf`;
+    const fileName = `summary-${document.id}.pdf`;
 
     const filePath = await generatePDF(
-      `Document Summary - ${document.originalName}`,
+      `Document Summary - ${document.name}`,
       document.summary,
       fileName
     );
 
     res.download(
       filePath,
-      `summary-${document.originalName.replace(".pdf", "")}.pdf`,
+      `summary-${document.name.replace(/\.pdf$/i, "")}.pdf`,
       (error) => {
         if (error) {
           console.error("Download error:", error);
@@ -54,13 +56,8 @@ const generateSummaryPDF = async (req, res) => {
 
 const generateQuestionsPDF = async (req, res) => {
   try {
-    const document = await Document.findById(req.params.id);
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found"
-      });
-    }
+    const document = getOwned(req, res);
+    if (!document) return;
 
     if (!document.importantQuestions || document.importantQuestions.length === 0) {
       return res.status(400).json({
@@ -80,17 +77,17 @@ const generateQuestionsPDF = async (req, res) => {
       content += "----------------------------------------\n\n";
     });
 
-    const fileName = `important-questions-${document._id}.pdf`;
+    const fileName = `important-questions-${document.id}.pdf`;
 
     const filePath = await generatePDF(
-      `Important Questions - ${document.originalName}`,
+      `Important Questions - ${document.name}`,
       content,
       fileName
     );
 
     res.download(
       filePath,
-      `important-questions-${document.originalName.replace(".pdf", "")}.pdf`,
+      `important-questions-${document.name.replace(/\.pdf$/i, "")}.pdf`,
       (error) => {
         if (error) {
           console.error("Download error:", error);
@@ -115,13 +112,8 @@ const generateQuestionsPDF = async (req, res) => {
 
 const generateQuizPDF = async (req, res) => {
   try {
-    const document = await Document.findById(req.params.id);
-
-    if (!document) {
-      return res.status(404).json({
-        message: "Document not found"
-      });
-    }
+    const document = getOwned(req, res);
+    if (!document) return;
 
     if (!document.quiz || document.quiz.length === 0) {
       return res.status(400).json({
@@ -144,17 +136,17 @@ const generateQuizPDF = async (req, res) => {
       content += "----------------------------------------\n\n";
     });
 
-    const fileName = `quiz-${document._id}.pdf`;
+    const fileName = `quiz-${document.id}.pdf`;
 
     const filePath = await generatePDF(
-      `Quiz - ${document.originalName}`,
+      `Quiz - ${document.name}`,
       content,
       fileName
     );
 
     res.download(
       filePath,
-      `quiz-${document.originalName.replace(".pdf", "")}.pdf`,
+      `quiz-${document.name.replace(/\.pdf$/i, "")}.pdf`,
       (error) => {
         if (error) {
           console.error("Download error:", error);

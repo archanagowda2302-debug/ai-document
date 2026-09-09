@@ -3,20 +3,26 @@ const express = require("express");
 const router = express.Router();
 
 const upload = require("../middleware/upload");
+const { authenticateToken } = require("../middleware/auth");
 
 const {
     uploadDocument,
-    getDocument
+    getDocument,
+    getDocuments
 } = require("../controllers/documentController");
+
+router.get("/", authenticateToken, getDocuments);
 
 router.post(
     "/upload",
-    upload.single("document"),
+    authenticateToken,
+    upload.array("document", 20),
     uploadDocument
 );
 
 router.get(
     "/:id",
+    authenticateToken,
     getDocument
 );
 

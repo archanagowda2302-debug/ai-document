@@ -3038,6 +3038,72 @@ button {
    UNIQUE STYLES - DO NOT CONFLICT WITH OLD QUIZ CSS
    ========================================================= */
 
+  /* Structured AI output */
+  .ai-response {
+    color: #344054;
+    font-family: "DM Sans", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .ai-response h1,
+  .ai-response h2,
+  .ai-response h3 {
+    color: #101a3c;
+    font-family: "Space Grotesk", sans-serif;
+    line-height: 1.25;
+    margin: 0 0 12px;
+  }
+
+  .ai-response h1 { font-size: 25px; }
+  .ai-response h2 { font-size: 20px; margin-top: 25px; }
+  .ai-response h3 { font-size: 17px; margin-top: 20px; }
+  .ai-response p { margin: 0 0 15px; }
+  .ai-response ul,
+  .ai-response ol { margin: 8px 0 18px 22px; padding-left: 18px; }
+  .ai-response li { margin: 6px 0; padding-left: 4px; }
+  .ai-response strong { color: #18245a; font-weight: 700; }
+  .ai-response em { color: #53617c; }
+  .ai-response blockquote { border-left: 3px solid #7655f5; margin: 18px 0; padding: 8px 18px; color: #66738f; }
+  .ai-response code { background: #f0f2f8; border-radius: 5px; padding: 2px 6px; font-size: .92em; }
+  .chat-sources { border-top: 1px solid #e5e9f2; color: #66738f; font-size: 13px; line-height: 1.6; margin-top: 20px; padding-top: 14px; }
+  .chat-sources strong { color: #18245a; }
+
+  /* DocuMind authentication */
+  .auth-shell { align-items: center; background: radial-gradient(circle at 20% 10%, rgba(89, 76, 190, .32), transparent 32%), linear-gradient(135deg, #0c1028, #16133b 55%, #10152e); box-sizing: border-box; color: white; display: grid; gap: 52px; grid-template-columns: minmax(220px, 330px) minmax(320px, 460px); justify-content: center; min-height: 100vh; overflow: hidden; padding: 36px 24px; position: relative; }
+  .auth-brand { position: relative; text-align: left; z-index: 1; }
+  .auth-logo { align-items: center; background: linear-gradient(135deg, #805cff, #4f8cff); border-radius: 18px; box-shadow: 0 14px 35px rgba(75, 87, 255, .35); display: flex; font-size: 29px; height: 64px; justify-content: center; margin-bottom: 20px; width: 64px; }
+  .auth-brand h1 { font-family: "Space Grotesk", sans-serif; font-size: 40px; letter-spacing: -.5px; margin: 0; }
+  .auth-brand p { color: #9ca5d2; font-size: 11px; letter-spacing: 2.4px; margin: 8px 0 26px; }
+  .auth-brand span { color: #d7dcf7; font-size: 17px; }
+  .auth-card { backdrop-filter: blur(18px); background: rgba(255, 255, 255, .97); border: 1px solid rgba(255, 255, 255, .4); border-radius: 22px; box-shadow: 0 24px 70px rgba(0, 0, 0, .25); color: #172142; padding: 34px; position: relative; z-index: 1; }
+  .auth-card-heading span { color: #7457ed; font-size: 11px; font-weight: 800; letter-spacing: 2px; }
+  .auth-card-heading h2 { color: #101a3c; font-family: "Space Grotesk", sans-serif; font-size: 29px; margin: 9px 0 7px; }
+  .auth-card-heading p { color: #71809e; font-size: 14px; margin: 0 0 25px; }
+  .auth-card label { color: #344054; display: block; font-size: 13px; font-weight: 700; margin-top: 15px; }
+  .auth-card input { background: #f8f9fc; border: 1px solid #dfe3ed; border-radius: 10px; box-sizing: border-box; color: #18245a; display: block; font: inherit; margin-top: 8px; outline: none; padding: 13px 14px; width: 100%; }
+  .auth-card input:focus { background: white; border-color: #7257ed; box-shadow: 0 0 0 3px rgba(114, 87, 237, .13); }
+  .auth-primary { background: linear-gradient(135deg, #6d53ed, #4f75ed); border: 0; border-radius: 11px; box-shadow: 0 10px 22px rgba(91, 83, 232, .22); color: white; cursor: pointer; font-size: 14px; font-weight: 800; margin-top: 25px; padding: 14px; width: 100%; }
+  .auth-primary:disabled { cursor: wait; opacity: .7; }
+  .auth-switch { background: transparent; border: 0; color: #5e4bdb; cursor: pointer; display: block; font-size: 13px; margin: 17px auto 0; }
+  .auth-error, .auth-notice { border-radius: 8px; font-size: 13px; margin: 14px 0 0; padding: 10px 12px; }
+  .auth-error { background: #fff0f1; color: #b42318; }
+  .auth-notice { background: #edf9f1; color: #18753b; }
+  .auth-footnote { color: #98a2b3; display: block; margin-top: 25px; text-align: center; }
+  .auth-glow { border-radius: 50%; filter: blur(3px); height: 280px; opacity: .2; position: absolute; width: 280px; }
+  .auth-glow-one { background: #795cff; left: -100px; top: 12%; }
+  .auth-glow-two { background: #3e8fff; bottom: -130px; right: -70px; }
+
+  @media (max-width: 760px) {
+    .auth-shell { gap: 28px; grid-template-columns: minmax(0, 460px); padding: 28px 18px; }
+    .auth-brand { text-align: center; }
+    .auth-logo { margin: 0 auto 14px; }
+    .auth-brand h1 { font-size: 34px; }
+    .auth-brand p { margin-bottom: 12px; }
+    .auth-brand span { font-size: 14px; }
+    .auth-card { padding: 26px 22px; }
+  }
+
 .docmind-quiz {
   width: 100%;
   box-sizing: border-box;

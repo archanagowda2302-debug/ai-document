@@ -1,6 +1,12 @@
-import React, { useState } from "react";
+
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { jsPDF } from "jspdf";
 import "./App.css";
 import Quiz from "./Quiz";
+import { API_URL, apiRequest } from "./api";
+import { useAuth } from "./authState";
+import AuthScreen from "./AuthScreen";
 
 const features = [
   {
@@ -41,49 +47,138 @@ const features = [
   },
 ];
 
+const downloadTextPdf = (title, content, fileName) => {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 50;
+  let cursorY = 60;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text(title, pageWidth / 2, cursorY, { align: "center" });
+  cursorY += 28;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+
+  const blocks = String(content || "").split(/\r?\n/).flatMap((line) => {
+    if (line.startsWith("# ")) return [{ text: line.replace(/^#\s*/, ""), style: "heading" }];
+    if (line.startsWith("## ")) return [{ text: line.replace(/^##\s*/, ""), style: "heading" }];
+    if (line.startsWith("- ") || line.startsWith("* ")) return [{ text: `• ${line.replace(/^[-*]\s*/, "")}`, style: "bullet" }];
+    if (/^\d+\.\s/.test(line)) return [{ text: line, style: "list" }];
+    return [{ text: line || " ", style: "body" }];
+  });
+
+  blocks.forEach((block) => {
+    const paragraphs = doc.splitTextToSize(block.text || " ", pageWidth - margin * 2);
+    if (cursorY + paragraphs.length * 16 > pageHeight - margin) {
+      doc.addPage();
+      cursorY = 50;
+    }
+
+    doc.setFont("helvetica", block.style === "heading" ? "bold" : "normal");
+    doc.setFontSize(block.style === "heading" ? 14 : 11);
+    doc.text(paragraphs, margin, cursorY, { baseline: "top" });
+    cursorY += paragraphs.length * (block.style === "heading" ? 18 : 15) + 6;
+  });
+
+  doc.save(fileName);
+};
+
+const documentSelectionQuery = (doc) => {
+  if (!Array.isArray(doc?.documentIds) || doc.documentIds.length < 2) return "";
+  return `&documentIds=${encodeURIComponent(doc.documentIds.join(","))}`;
+};
+
 function App() {
+  const { user, loading: authLoading, logout } = useAuth();
   const [page, setPage] = useState("home");
   const [documents, setDocuments] = useState([]);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
 
-  const uploadPDF = (e) => {
-    const files = Array.from(e.target.files || []);
+  const normalizeDocument = (item) => ({
+    ...item,
+    size: item.size ? `${(Number(item.size) / (1024 * 1024)).toFixed(2)} MB` : item.pages ? `${item.pages} page${item.pages === 1 ? "" : "s"}` : "PDF",
+    date: new Date(item.uploadedAt).toLocaleDateString(),
+    status: item.status || "uploaded"
+  });
 
-    const pdfs = files.filter(
-      (file) =>
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf")
-    );
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const refreshDocuments = () => apiRequest("/api/documents").then((items) => setDocuments(items.map(normalizeDocument))).catch(() => {});
+    refreshDocuments();
+    const poll = window.setInterval(refreshDocuments, 3000);
+    return () => window.clearInterval(poll);
+  }, [authLoading, user]);
 
-    if (!pdfs.length) {
-      alert("Please upload PDF files only.");
-      return;
-    }
+  if (authLoading) return <div />;
+  if (!user) return <AuthScreen />;
 
-    const oversized = pdfs.filter(
-      (file) => file.size > 20 * 1024 * 1024
-    );
+  const uploadPDF = async (e) => {
+  const files = Array.from(e.target.files || []);
 
-    if (oversized.length) {
-      alert("Each PDF must be smaller than 20 MB.");
-      return;
-    }
+  const pdfs = files.filter(
+    (file) =>
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+  );
 
-    const newDocs = pdfs.map((file) => ({
-      id: Date.now() + Math.random(),
-      name: file.name,
-      size: (file.size / 1024 / 1024).toFixed(2) + " MB",
-      date: new Date().toLocaleDateString(),
-      status: "Ready",
-    }));
+  if (!pdfs.length) {
+    alert("Please upload PDF files only.");
+    return;
+  }
 
-    setDocuments((prev) => [...newDocs, ...prev]);
-    setSelectedDoc(newDocs[0]);
+  const oversized = pdfs.filter(
+    (file) => file.size > 1024 * 1024 * 1024
+  );
+
+  if (oversized.length) {
+    alert("Each PDF must be smaller than 1 GB.");
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+    pdfs.forEach((file) => formData.append("document", file));
+
+    const data = await new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open("POST", `${API_URL}/api/documents/upload`);
+      request.setRequestHeader("Authorization", `Bearer ${localStorage.getItem("documind_token")}`);
+      request.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          pdfs.forEach((file) => setUploadProgress((previous) => ({ ...previous, [file.name]: percent })));
+        }
+      };
+      request.onload = () => {
+        const response = JSON.parse(request.responseText || "{}");
+        if (request.status >= 200 && request.status < 300) resolve(response);
+        else reject(new Error(response.message || `Upload failed: ${request.status}`));
+      };
+      request.onerror = () => reject(new Error("Network error while uploading the PDF."));
+      request.send(formData);
+    });
+
+    const uploadedDocs = (data.documents || [data.document]).filter(Boolean).map(normalizeDocument);
+    setDocuments((prev) => [...uploadedDocs, ...prev.filter((item) => !uploadedDocs.some((uploaded) => uploaded.id === item.id))]);
+    setSelectedDoc(uploadedDocs[0] ? { ...uploadedDocs[0], documentIds: uploadedDocs.map((item) => item.id) } : null);
     setPage("documents");
 
-    e.target.value = "";
-  };
+    alert("PDF upload accepted. Processing will continue in the background.");
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert(
+      error.message || "Failed to upload PDF. Please check whether the backend is running."
+    );
+  }
+
+  e.target.value = "";
+};
 
   const openFeature = (id) => {
     if (!selectedDoc && documents.length) {
@@ -195,25 +290,40 @@ function App() {
 
           </div>
 
-          <div className="profile">
+          <div className="profile" onClick={() => setProfileOpen((open) => !open)}>
 
             <div className="avatar">
-              P
+              {(user?.name || "U").charAt(0).toUpperCase()}
             </div>
 
             <div>
               <strong>
-                Pooja
+                {user?.name || "User"}
               </strong>
 
               <span>
-                Student Account
+                {user?.email || "Account"}
               </span>
             </div>
 
             <span>
               •••
             </span>
+
+            {profileOpen && (
+              <div className="profileDropdown">
+                <div className="profileDropdownHeader">
+                  <div className="avatar small">{(user?.name || "U").charAt(0).toUpperCase()}</div>
+                  <div>
+                    <strong>{user?.name || "User"}</strong>
+                    <small>{user?.email || ""}</small>
+                  </div>
+                </div>
+                <button type="button">Profile</button>
+                <button type="button">Settings</button>
+                <button type="button" onClick={logout}>Logout</button>
+              </div>
+            )}
 
           </div>
 
@@ -273,8 +383,23 @@ function App() {
               ◔
             </button>
 
-            <div className="topAvatar">
-              P
+            <div className="topUserWrap" onClick={() => setProfileOpen((open) => !open)}>
+              <div className="topAvatar">{(user?.name || "U").charAt(0).toUpperCase()}</div>
+              <span className="topUserName">{user?.name || "User"}</span>
+              {profileOpen && (
+                <div className="profileDropdown topProfileDropdown">
+                  <div className="profileDropdownHeader">
+                    <div className="avatar small">{(user?.name || "U").charAt(0).toUpperCase()}</div>
+                    <div>
+                      <strong>{user?.name || "User"}</strong>
+                      <small>{user?.email || ""}</small>
+                    </div>
+                  </div>
+                  <button type="button">Profile</button>
+                  <button type="button">Settings</button>
+                  <button type="button" onClick={logout}>Logout</button>
+                </div>
+              )}
             </div>
 
           </div>
@@ -290,7 +415,9 @@ function App() {
 
           {page === "home" && (
             <Dashboard
+              user={user}
               documents={documents}
+              uploadProgress={uploadProgress}
               setPage={setPage}
               uploadPDF={uploadPDF}
               openFeature={openFeature}
@@ -329,7 +456,7 @@ function App() {
               icon="✦"
               doc={selectedDoc}
             >
-              <SummaryFeature />
+              <SummaryFeature doc={selectedDoc} />
             </FeaturePage>
           )}
 
@@ -343,7 +470,7 @@ function App() {
               icon="◌"
               doc={selectedDoc}
             >
-              <ChatFeature />
+              <ChatFeature doc={selectedDoc} />
             </FeaturePage>
           )}
 
@@ -367,7 +494,7 @@ function App() {
               icon="?"
               doc={selectedDoc}
             >
-              <QuestionsFeature />
+              <QuestionsFeature doc={selectedDoc} />
             </FeaturePage>
           )}
 
@@ -381,7 +508,7 @@ function App() {
               icon="◷"
               doc={selectedDoc}
             >
-              <DatesFeature />
+              <DatesFeature doc={selectedDoc} />
             </FeaturePage>
           )}
 
@@ -395,7 +522,7 @@ function App() {
               icon="▦"
               doc={selectedDoc}
             >
-              <TablesFeature />
+              <TablesFeature doc={selectedDoc} />
             </FeaturePage>
           )}
 
@@ -403,7 +530,7 @@ function App() {
           {/* SETTINGS */}
 
           {page === "settings" && (
-            <SettingsPage />
+            <SettingsPage onLogout={logout} user={user} />
           )}
 
         </div>
@@ -432,14 +559,23 @@ function App() {
 ========================================================= */
 
 function Dashboard({
+  user,
   documents,
+  uploadProgress,
   setPage,
   uploadPDF,
   openFeature,
   setSelectedDoc,
 }) {
+  const activeUploads = Object.entries(uploadProgress).filter(([, progress]) => progress < 100);
   return (
     <>
+
+      {activeUploads.length > 0 && (
+        <div className="uploadProgressNotice">
+          Uploading {activeUploads.length} PDF{activeUploads.length === 1 ? "" : "s"}: {activeUploads[0][1]}%
+        </div>
+      )}
 
       {/* WELCOME */}
 
@@ -452,7 +588,7 @@ function Dashboard({
           </p>
 
           <h1>
-            Welcome back, Pooja <span>✦</span>
+            Welcome back, {user?.name || "User"} <span>✦</span>
           </h1>
 
           <p>
@@ -510,7 +646,7 @@ function Dashboard({
           </label>
 
           <small>
-            PDF files only · Maximum 20 MB
+            PDF files only · Maximum 1 GB per file
           </small>
 
         </div>
@@ -705,7 +841,7 @@ function Dashboard({
               </div>
 
               <span className="status">
-                ● {doc.status}
+                ● {doc.status === "ready" ? "Ready" : doc.status === "failed" ? "Processing failed" : "Processing"}
               </span>
 
               <button
@@ -847,7 +983,7 @@ function DocumentsPage({
               </div>
 
               <span className="status">
-                ● Ready
+                ● {doc.status === "ready" ? "Ready" : doc.status === "failed" ? "Failed" : "Processing"}
               </span>
 
               <div className="rowActions">
@@ -996,10 +1132,18 @@ function FeaturePage({
    SUMMARY
 ========================================================= */
 
-function SummaryFeature() {
+function SummaryFeature({ doc }) {
   const [type, setType] = useState("Key Points");
-  const [generated, setGenerated] = useState(false);
-
+  const [summary, setSummary] = useState("");
+  const [loading, setLoading] = useState(false);
+  const generateSummary = async () => {
+    if (!doc?.id) return alert("Please select a document first.");
+    setLoading(true);
+    try {
+      const data = await apiRequest(`/api/ai/${doc.id}/summary?type=${encodeURIComponent(type)}${documentSelectionQuery(doc)}`);
+      setSummary(data.summary);
+    } catch (error) { alert(error.message); } finally { setLoading(false); }
+  };
   return (
     <div className="toolBox">
 
@@ -1037,35 +1181,29 @@ function SummaryFeature() {
 
       <button
         className="primaryBtn wide"
-        onClick={() => setGenerated(true)}
+        onClick={generateSummary}
+        disabled={loading}
       >
         ✦ Generate Summary
       </button>
 
-      {generated && (
+      {summary && (
 
         <ResultBox title={`${type} Summary`}>
 
-          <p>
-            This is where the AI-generated summary will
-            appear after connecting the frontend with
-            your backend API.
-          </p>
-
-          <p>
-            The document content will be analyzed and the
-            important information will be displayed here.
-          </p>
+          <div className="ai-response"><ReactMarkdown>{summary}</ReactMarkdown></div>
 
           <div className="resultActions">
 
-            <button className="secondaryBtn">
+            <button className="secondaryBtn" onClick={() => {
+              downloadTextPdf("Document Summary", summary, "DocAI-Summary.pdf");
+            }}>
               ↓ Download Summary PDF
             </button>
 
             <button
               className="secondaryBtn"
-              onClick={() => setGenerated(false)}
+              onClick={generateSummary}
             >
               ↻ Regenerate
             </button>
@@ -1085,20 +1223,21 @@ function SummaryFeature() {
    CHAT
 ========================================================= */
 
-function ChatFeature() {
+function ChatFeature({ doc }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const ask = () => {
-
-    if (!question.trim()) {
-      alert("Please enter a question.");
-      return;
-    }
-
-    setAnswer(
-      "AI answer will appear here after connecting the Chat API with your backend."
-    );
+  const ask = async () => {
+    if (!doc?.id) return alert("Please select a document first.");
+    if (!question.trim()) return alert("Please enter a question.");
+    setLoading(true);
+    try {
+      const data = await apiRequest(`/api/ai/${doc.id}/chat?documentIds=${encodeURIComponent((doc.documentIds || [doc.id]).join(","))}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+      setAnswer(data.answer);
+      setSources(data.sources || []);
+    } catch (error) { alert(error.message); } finally { setLoading(false); }
   };
 
   return (
@@ -1119,6 +1258,7 @@ function ChatFeature() {
       <button
         className="primaryBtn wide"
         onClick={ask}
+        disabled={loading}
       >
         ◌ Ask AI
       </button>
@@ -1127,9 +1267,8 @@ function ChatFeature() {
 
         <ResultBox title="AI Answer">
 
-          <p>
-            {answer}
-          </p>
+          <div className="ai-response"><ReactMarkdown>{answer}</ReactMarkdown></div>
+          <div className="chat-sources"><strong>Sources</strong><br />{sources.length ? `Pages ${sources.map((source) => source.page).join(", ")}` : "None"}</div>
 
           <div className="resultActions">
 
@@ -1167,21 +1306,49 @@ function ChatFeature() {
    IMPORTANT QUESTIONS
 ========================================================= */
 
-function QuestionsFeature() {
+function QuestionsFeature({ doc }) {
   const [count, setCount] = useState("10");
-  const [generated, setGenerated] = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const generateQuestions = async () => {
+    if (!doc?.id) {
+      alert("Please select a document first.");
+      return;
+    }
+
+    setLoading(true);
+    setQuestions([]);
+
+    try {
+      const data = await apiRequest(`/api/ai/${doc.id}/important-questions?documentIds=${encodeURIComponent((doc.documentIds || [doc.id]).join(","))}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numberOfQuestions: Number(count) }),
+      });
+
+      setQuestions(
+        data.questions ||
+        data.result ||
+        data.content ||
+        []
+      );
+    } catch (error) {
+      console.error("Questions error:", error);
+      alert(error.message || "Failed to generate important questions.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="toolBox">
-
       <h3>
         Generate Important Questions
       </h3>
 
       <div className="optionGrid">
-
         {["5", "10", "20"].map((n) => (
-
           <button
             key={n}
             className={
@@ -1193,54 +1360,53 @@ function QuestionsFeature() {
           >
             {n} Questions
           </button>
-
         ))}
-
       </div>
 
       <button
         className="primaryBtn wide"
-        onClick={() => setGenerated(true)}
+        onClick={generateQuestions}
+        disabled={loading}
       >
-        ? Generate Questions
+        {loading ? "Generating..." : "❓ Generate Questions"}
       </button>
 
-      {generated && (
+      {loading && (
+        <p>Generating important questions...</p>
+      )}
 
+      {questions.length > 0 && (
         <ResultBox title="Important Questions">
-
-          <ol className="questionList">
-
-            {Array.from({ length: 5 }).map((_, i) => (
-
-              <li key={i}>
-                What is the importance of the
-                main concept discussed in the document?
-              </li>
-
-            ))}
-
-          </ol>
+          {Array.isArray(questions) ? (
+            questions.map((question, index) => (
+              <p key={index}>
+                {index + 1}. {question.question || question}
+              </p>
+            ))
+          ) : (
+            <p>{questions}</p>
+          )}
 
           <div className="resultActions">
-
-            <button className="secondaryBtn">
+            <button
+              className="secondaryBtn"
+              onClick={() => {
+                const content = questions.map((item, index) => `${index + 1}. ${item.question || item}`).join("\n\n");
+                downloadTextPdf("Important Questions", content, "DocAI-Important-Questions.pdf");
+              }}
+            >
               ↓ Download Questions PDF
             </button>
 
             <button
               className="secondaryBtn"
-              onClick={() => setGenerated(false)}
+              onClick={generateQuestions}
             >
-              ↻ Generate Again
+              ↻ Regenerate
             </button>
-
           </div>
-
         </ResultBox>
-
       )}
-
     </div>
   );
 }
@@ -1250,8 +1416,16 @@ function QuestionsFeature() {
    IMPORTANT DATES
 ========================================================= */
 
-function DatesFeature() {
+function DatesFeature({ doc }) {
   const [generated, setGenerated] = useState(false);
+  const [dates, setDates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const extract = async () => {
+    if (!doc?.id) return alert("Please select a document first.");
+    setLoading(true);
+    try { const data = await apiRequest(`/api/ai/${doc.id}/dates?documentIds=${encodeURIComponent((doc.documentIds || [doc.id]).join(","))}`); setDates(data.dates); setGenerated(true); }
+    catch (error) { alert(error.message); } finally { setLoading(false); }
+  };
 
   return (
     <div className="toolBox">
@@ -1262,7 +1436,8 @@ function DatesFeature() {
 
       <button
         className="primaryBtn wide"
-        onClick={() => setGenerated(true)}
+        onClick={extract}
+        disabled={loading}
       >
         ◷ Extract Important Dates
       </button>
@@ -1279,11 +1454,7 @@ function DatesFeature() {
               <span>Importance</span>
             </div>
 
-            {[
-              ["12 Jan 2026", "Project Start", "High"],
-              ["20 Feb 2026", "Submission", "High"],
-              ["05 Mar 2026", "Review", "Medium"],
-            ].map((row, i) => (
+            {dates.map((row, i) => (
 
               <div
                 className="tableRow"
@@ -1291,15 +1462,15 @@ function DatesFeature() {
               >
 
                 <span>
-                  {row[0]}
+                  {row.date}
                 </span>
 
                 <span>
-                  {row[1]}
+                  {row.event}
                 </span>
 
                 <span>
-                  {row[2]}
+                  {row.importance}
                 </span>
 
               </div>
@@ -1310,13 +1481,16 @@ function DatesFeature() {
 
           <div className="resultActions">
 
-            <button className="secondaryBtn">
+            <button className="secondaryBtn" onClick={() => {
+              const content = dates.map((item) => `${item.date}: ${item.event} (${item.importance})`).join("\n");
+              downloadTextPdf("Important Dates", content, "DocAI-Important-Dates.pdf");
+            }}>
               ↓ Download Dates PDF
             </button>
 
             <button
               className="secondaryBtn"
-              onClick={() => setGenerated(false)}
+              onClick={extract}
             >
               ↻ Extract Again
             </button>
@@ -1336,8 +1510,20 @@ function DatesFeature() {
    TABLES
 ========================================================= */
 
-function TablesFeature() {
+function TablesFeature({ doc }) {
   const [generated, setGenerated] = useState(false);
+  const [tables, setTables] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const extract = async () => {
+    if (!doc?.id) return alert("Please select a document first.");
+    setLoading(true);
+    try {
+      const data = await apiRequest(`/api/ai/${doc.id}/tables?documentIds=${encodeURIComponent((doc.documentIds || [doc.id]).join(","))}`);
+      setTables(Array.isArray(data.tables) ? data.tables : []);
+      setGenerated(true);
+    }
+    catch (error) { alert(error.message); } finally { setLoading(false); }
+  };
 
   return (
     <div className="toolBox">
@@ -1348,61 +1534,46 @@ function TablesFeature() {
 
       <button
         className="primaryBtn wide"
-        onClick={() => setGenerated(true)}
+        onClick={extract}
+        disabled={loading}
       >
         ▦ Extract Tables
       </button>
 
       {generated && (
 
-        <ResultBox title="Extracted Table 1">
+        <ResultBox title={tables.length ? "Extracted Tables" : "No Tables Found"}>
 
           <div className="dataTable">
 
-            <div className="tableHeader">
-              <span>Item</span>
-              <span>Description</span>
-              <span>Value</span>
-            </div>
-
-            {[
-              ["1", "Document Analysis", "Complete"],
-              ["2", "AI Processing", "Active"],
-              ["3", "Insights", "Available"],
-            ].map((row, i) => (
-
-              <div
-                className="tableRow"
-                key={i}
-              >
-
-                <span>
-                  {row[0]}
-                </span>
-
-                <span>
-                  {row[1]}
-                </span>
-
-                <span>
-                  {row[2]}
-                </span>
-
+            {tables.map((table, tableIndex) => (
+              <div key={tableIndex}>
+                <h4>{table.title || `Table ${tableIndex + 1}`}</h4>
+                <div className="tableHeader">
+                  {(table.columns || []).map((column, columnIndex) => <span key={columnIndex}>{column}</span>)}
+                </div>
+                {(table.rows || []).map((row, rowIndex) => (
+                  <div className="tableRow" key={rowIndex}>
+                    {row.map((cell, cellIndex) => <span key={cellIndex}>{cell}</span>)}
+                  </div>
+                ))}
               </div>
-
             ))}
 
           </div>
 
           <div className="resultActions">
 
-            <button className="secondaryBtn">
+            <button className="secondaryBtn" onClick={() => {
+              const text = tables.map((table) => `${table.title}\n${table.columns.join(" | ")}\n${table.rows.map((row) => row.join(" | ")).join("\n")}`).join("\n\n");
+              downloadTextPdf("Extracted Tables", text, "DocAI-Extracted-Tables.pdf");
+            }}>
               ↓ Download Tables PDF
             </button>
 
             <button
               className="secondaryBtn"
-              onClick={() => setGenerated(false)}
+              onClick={extract}
             >
               ↻ Extract Again
             </button>
@@ -1422,7 +1593,7 @@ function TablesFeature() {
    SETTINGS
 ========================================================= */
 
-function SettingsPage() {
+function SettingsPage({ onLogout, user }) {
   return (
     <div>
 
@@ -1433,6 +1604,14 @@ function SettingsPage() {
       />
 
       <div className="settingsBox">
+
+        <div className="settingRow">
+          <div>
+            <strong>{user?.name || "Account"}</strong>
+            <p>{user?.email}</p>
+          </div>
+          <button type="button" onClick={onLogout}>Logout</button>
+        </div>
 
         <div className="settingRow">
 

@@ -1,40 +1,30 @@
-const Document = require("../models/Document");
-const { extractPDFText } = require("../services/pdfService");
+const { createDocument, getDocument: findAnyDocument, getOwnedDocument: findOwnedDocument, listDocumentsForUser } = require("../services/documentStore");
+const { queueDocumentProcessing } = require("../services/documentProcessor");
 
 const uploadDocument = async (req, res) => {
 
     try {
 
-        if (!req.file) {
+        const files = Array.isArray(req.files) ? req.files : req.file ? [req.file] : [];
+
+        if (!files.length) {
             return res.status(400).json({
                 message: "Please upload a PDF"
             });
         }
 
-        const result = await extractPDFText(req.file.path);
-
-        const document = await Document.create({
-
-            originalName: req.file.originalname,
-
-            filePath: req.file.path,
-
-            extractedText: result.text,
-
-            pageCount: result.pages
-
-        });
+        const documents = files.map((file) => createDocument({
+            name: file.originalname,
+            filePath: file.path,
+            fileSize: file.size,
+            userId: req.user.id
+        }));
+        documents.forEach((document) => queueDocumentProcessing(document.id));
 
         res.status(201).json({
-
-            message: "PDF uploaded successfully",
-
-            document: {
-                id: document._id,
-                name: document.originalName,
-                pages: document.pageCount
-            }
-
+            message: "PDF upload accepted. Processing has started.",
+            documents: documents.map(toDocumentSummary),
+            document: toDocumentSummary(documents[0])
         });
 
     } catch (error) {
@@ -54,17 +44,13 @@ const getDocument = async (req, res) => {
 
     try {
 
-        const document = await Document.findById(
-            req.params.id
-        );
+        const document = findOwnedDocument(req.params.id, req.user.id);
 
         if (!document) {
-            return res.status(404).json({
-                message: "Document not found"
-            });
+            return res.status(findAnyDocument(req.params.id) ? 403 : 404).json({ message: findAnyDocument(req.params.id) ? "You are not allowed to access this document." : "Document not found" });
         }
 
-        res.json(document);
+        res.json(toDocumentSummary(document));
 
     } catch (error) {
 
@@ -77,7 +63,23 @@ const getDocument = async (req, res) => {
 
 };
 
+const getDocuments = (req, res) => {
+    res.json(listDocumentsForUser(req.user.id).map(toDocumentSummary));
+};
+
+const toDocumentSummary = (document) => ({
+    id: document.id,
+    name: document.name,
+    pages: document.pageCount,
+    size: document.fileSize,
+    status: document.status,
+    processingError: document.processingError,
+    chunkCount: document.chunkCount,
+    uploadedAt: document.uploadedAt
+});
+
 module.exports = {
     uploadDocument,
-    getDocument
+    getDocument,
+    getDocuments
 };
